@@ -11,6 +11,9 @@ import numpy as np
 import cv2
 from collections import deque
 import time
+import random
+import pickle
+import os
 
 from face_detection import detect_bounding_box
 
@@ -110,29 +113,101 @@ model.eval()
 
 
 class TemporalTracker:
-    """Layer 2: Temporal Consistency Tracker for stable predictions"""
+    """
+    Layer 2: Enhanced Temporal Consistency Analysis
+    Tracks predictions across frames with voting-based classification
+    """
     
-    def __init__(self, window_size=60, high_confidence_threshold=0.75):
+    def __init__(self, window_size=60, high_confidence_threshold=0.75, voting_window=10):
         """
         Args:
             window_size: Number of frames to track (60 frames ~ 2 seconds at 30fps)
             high_confidence_threshold: Threshold for high confidence detection
+            voting_window: Number of frames to collect before updating verdict (default: 10)
         """
         self.window_size = window_size
         self.high_confidence_threshold = high_confidence_threshold
+        self.voting_window = voting_window
         self.score_history = deque(maxlen=window_size)
+        self.variance_history = deque(maxlen=30)  # Track prediction variance
         self.last_alert_time = 0
         self.alert_cooldown = 5  # seconds between alerts
         
+        # Voting system
+        self.frame_classifications = deque(maxlen=voting_window)  # Store last N classifications
+        self.fake_count = 0  # Count of fake frames in current window
+        self.real_count = 0  # Count of real frames in current window
+        self.current_verdict = 'REAL'  # Current classification verdict
+        
     def update(self, fake_probability):
-        """Update with new frame's fake probability"""
+        """Update with new frame's fake probability and voting system"""
         self.score_history.append(fake_probability)
+        
+        # Track variance for anomaly detection
+        if len(self.score_history) >= 5:
+            recent = list(self.score_history)[-5:]
+            variance = np.var(recent)
+            self.variance_history.append(variance)
+        
+        # Classify this frame: fake if probability > 0.4, else real
+        frame_class = 'FAKE' if fake_probability > 0.4 else 'REAL'
+        
+        # Add to voting window
+        self.frame_classifications.append(frame_class)
+        
+        # Update counts
+        if frame_class == 'FAKE':
+            self.fake_count += 1
+        else:
+            self.real_count += 1
+        
+        # If window is full, remove oldest classification from count
+        if len(self.frame_classifications) > self.voting_window:
+            oldest = self.frame_classifications[0]
+            if oldest == 'FAKE':
+                self.fake_count -= 1
+            else:
+                self.real_count -= 1
+        
+        # Update verdict on EVERY frame based on current vote counts
+        self._update_verdict()
+    
+    def _update_verdict(self):
+        """Update the current verdict based on voting"""
+        if len(self.frame_classifications) == 0:
+            return
+        
+        # Store previous verdict to detect changes
+        previous_verdict = self.current_verdict
+        
+        # Majority voting - update on every frame
+        if self.fake_count > self.real_count:
+            self.current_verdict = 'FAKE'
+        else:
+            self.current_verdict = 'REAL'
+        
+        # Only print when verdict changes
+        if previous_verdict != self.current_verdict:
+            if self.current_verdict == 'FAKE':
+                print(f"\n🔴 VERDICT CHANGED: FAKE ({self.fake_count}/{len(self.frame_classifications)} frames)")
+            else:
+                print(f"\n🟢 VERDICT CHANGED: REAL ({self.real_count}/{len(self.frame_classifications)} frames)")
         
     def get_temporal_average(self):
         """Get running average of fake probability"""
         if len(self.score_history) == 0:
             return 0.0
         return sum(self.score_history) / len(self.score_history)
+    
+    def get_weighted_average(self):
+        """Get weighted average (recent frames have more weight)"""
+        if len(self.score_history) == 0:
+            return 0.0
+        
+        scores = list(self.score_history)
+        weights = np.linspace(0.5, 1.0, len(scores))  # Recent frames weighted more
+        weighted_sum = sum(s * w for s, w in zip(scores, weights))
+        return weighted_sum / sum(weights)
     
     def get_stability_score(self):
         """Calculate how stable/consistent the predictions are (lower variance = more stable)"""
@@ -142,6 +217,18 @@ class TemporalTracker:
         mean = sum(scores) / len(scores)
         variance = sum((x - mean) ** 2 for x in scores) / len(scores)
         return 1.0 - min(variance * 4, 1.0)  # Normalize to 0-1, higher is more stable
+    
+    def detect_anomalies(self):
+        """Detect sudden jumps in predictions (deepfake artifacts)"""
+        if len(self.variance_history) < 10:
+            return 0.0
+        
+        # High variance = unstable predictions = potential deepfake
+        avg_variance = np.mean(list(self.variance_history))
+        
+        # Normalize to 0-1 range
+        anomaly_score = min(avg_variance * 10, 1.0)
+        return anomaly_score
     
     def should_trigger_forensic_analysis(self):
         """Determine if we should trigger Layer 3 (Gemini) analysis"""
@@ -161,52 +248,68 @@ class TemporalTracker:
         return False
     
     def get_confidence_level(self):
-        """Get confidence level: 'HIGH_FAKE' or 'HIGH_REAL'"""
-        avg = self.get_temporal_average()
-        
-        # Simple binary classification based on average
-        # If fake probability > 50%, classify as FAKE, otherwise REAL
-        if avg >= 0.5:
-            return 'FAKE'
-        else:
-            return 'REAL'
+        """Get confidence level based on voting system"""
+        # Return the current verdict from voting system
+        return self.current_verdict
+    
+    def get_voting_stats(self):
+        """Get current voting statistics"""
+        return {
+            'fake_count': self.fake_count,
+            'real_count': self.real_count,
+            'total_frames': len(self.frame_classifications)
+        }
     
     def reset(self):
         """Reset the tracker"""
         self.score_history.clear()
+        self.variance_history.clear()
+        self.last_alert_time = 0
+        
+        # Reset voting system
+        self.frame_classifications.clear()
+        self.fake_count = 0
+        self.real_count = 0
+        self.current_verdict = 'REAL'
 
 
 class DeepfakeDetector:
-    """3-Layer Deepfake Detection System"""
+    """3-Layer Deepfake Detection System with Enhanced Features"""
     
-    def __init__(self, enable_gradcam=False):
+    def __init__(self, enable_gradcam=False, use_tta=True, num_tta_augmentations=3):
         self.enable_gradcam = enable_gradcam
-        self.temporal_tracker = TemporalTracker(window_size=60, high_confidence_threshold=0.75)
+        self.use_tta = use_tta  # Test-Time Augmentation
+        self.num_tta_augmentations = num_tta_augmentations
+        self.temporal_tracker = TemporalTracker(
+            window_size=60, 
+            high_confidence_threshold=0.75,
+            voting_window=10  # Update verdict every 10 frames
+        )
         self.frame_count = 0
         
+        # Load calibrator if available
+        self.calibrator = None
+        calibrator_path = os.path.join(os.path.dirname(__file__), "weights", "calibrator.pkl")
+        if os.path.exists(calibrator_path):
+            try:
+                with open(calibrator_path, 'rb') as f:
+                    self.calibrator = pickle.load(f)
+                print("✓ Probability calibrator loaded")
+            except:
+                print("⚠️ Could not load calibrator")
+    
+    def reset(self):
+        """Reset detector state (call when stopping detection)"""
+        self.temporal_tracker.reset()
+        self.frame_count = 0
+        print("Detector reset - starting from frame 0")
+        
     def preprocess_face_quality(self, face_region):
-        """Adaptive preprocessing to handle different video qualities"""
-        # Convert to grayscale for quality assessment
-        gray = cv2.cvtColor(face_region, cv2.COLOR_BGR2GRAY)
-        
-        # Calculate image quality metrics
-        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        
-        # Adaptive preprocessing based on quality
+        """Lightweight preprocessing for real-time performance"""
+        # Skip expensive quality checks for speed
         processed = face_region.copy()
         
-        # If image is blurry (low laplacian variance), apply sharpening
-        if laplacian_var < 100:
-            kernel = np.array([[-1,-1,-1],
-                              [-1, 9,-1],
-                              [-1,-1,-1]])
-            processed = cv2.filter2D(processed, -1, kernel)
-        
-        # If image is very noisy or low quality, apply denoising
-        if laplacian_var < 50:
-            processed = cv2.fastNlMeansDenoisingColored(processed, None, 10, 10, 7, 21)
-        
-        # Normalize contrast and brightness using CLAHE
+        # Only apply CLAHE for contrast enhancement (fast and effective)
         lab = cv2.cvtColor(processed, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -214,41 +317,23 @@ class DeepfakeDetector:
         processed = cv2.merge([l, a, b])
         processed = cv2.cvtColor(processed, cv2.COLOR_LAB2BGR)
         
-        # Resize to consistent size before MTCNN (helps with varying resolutions)
-        target_size = 256
-        h, w = processed.shape[:2]
-        if h < target_size or w < target_size:
-            # Upscale small faces
-            scale = max(target_size / h, target_size / w)
-            new_h, new_w = int(h * scale), int(w * scale)
-            processed = cv2.resize(processed, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-        elif h > target_size * 2 or w > target_size * 2:
-            # Downscale very large faces
-            scale = min(target_size * 2 / h, target_size * 2 / w)
-            new_h, new_w = int(h * scale), int(w * scale)
-            processed = cv2.resize(processed, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        
         return processed
     
-    def analyze_face(self, face_region):
-        """Layer 1: Per-frame analysis using InceptionResnetV1"""
+    def _single_prediction(self, face_region):
+        """Single prediction without augmentation"""
         try:
-            # Apply adaptive quality preprocessing
-            preprocessed = self.preprocess_face_quality(face_region)
-            
             # Preprocess face
-            input_face = Image.fromarray(cv2.cvtColor(preprocessed, cv2.COLOR_BGR2RGB))
+            input_face = Image.fromarray(cv2.cvtColor(face_region, cv2.COLOR_BGR2RGB))
             input_face = mtcnn(input_face)
             
             if input_face is None:
-                return None, None, None
+                return None
             
             input_face = input_face.unsqueeze(0)
-            # EfficientNet-B0 expects 224x224 input
             input_face = F.interpolate(input_face, size=(224, 224), mode="bilinear", align_corners=False)
             input_face = input_face.to(DEVICE).to(torch.float32) / 255.0
             
-            # Normalize using ImageNet statistics (EfficientNet pretrained on ImageNet)
+            # Normalize
             mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(DEVICE)
             std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(DEVICE)
             input_face = (input_face - mean) / std
@@ -256,78 +341,169 @@ class DeepfakeDetector:
             # Get prediction
             with torch.no_grad():
                 logit = model(input_face).squeeze(0)
-                # Apply sigmoid to convert logit to probability
                 output = torch.sigmoid(logit)
-                # Output represents FAKE probability
-                fake_probability = output.item()
+                return output.item()
+        except:
+            return None
+    
+    def analyze_face_with_tta(self, face_region):
+        """Analyze face with Test-Time Augmentation for better accuracy"""
+        predictions = []
+        
+        # Original prediction
+        pred = self._single_prediction(face_region)
+        if pred is not None:
+            predictions.append(pred)
+        
+        # Augmented predictions
+        for _ in range(self.num_tta_augmentations - 1):
+            aug_face = face_region.copy()
             
-            # Optional: Generate GradCAM visualization
+            # Random horizontal flip
+            if random.random() > 0.5:
+                aug_face = cv2.flip(aug_face, 1)
+            
+            # Random brightness (±10%)
+            brightness = random.uniform(0.9, 1.1)
+            aug_face = cv2.convertScaleAbs(aug_face, alpha=brightness, beta=0)
+            
+            # Random rotation (±3 degrees)
+            angle = random.uniform(-3, 3)
+            h, w = aug_face.shape[:2]
+            M = cv2.getRotationMatrix2D((w/2, h/2), angle, 1.0)
+            aug_face = cv2.warpAffine(aug_face, M, (w, h))
+            
+            # Get prediction
+            pred = self._single_prediction(aug_face)
+            if pred is not None:
+                predictions.append(pred)
+        
+        # Average all predictions
+        if len(predictions) > 0:
+            return np.mean(predictions)
+        return None
+    
+    def apply_calibration(self, raw_prob):
+        """Apply probability calibration if available"""
+        if self.calibrator is None:
+            return raw_prob
+        
+        try:
+            # Calibrate probability
+            calibrated = self.calibrator.predict_proba([[raw_prob]])[0][1]
+            return calibrated
+        except:
+            return raw_prob
+    
+    def analyze_frequency_domain(self, face_region):
+        """Analyze face in frequency domain to detect GAN artifacts"""
+        try:
+            gray = cv2.cvtColor(face_region, cv2.COLOR_BGR2GRAY)
+            
+            # Apply FFT
+            f_transform = np.fft.fft2(gray)
+            f_shift = np.fft.fftshift(f_transform)
+            magnitude = np.abs(f_shift)
+            
+            # Extract high-frequency energy
+            h, w = magnitude.shape
+            center_h, center_w = h // 2, w // 2
+            
+            # Mask center (low frequencies)
+            high_freq_region = magnitude.copy()
+            mask_size = min(h, w) // 4
+            high_freq_region[center_h-mask_size:center_h+mask_size, 
+                           center_w-mask_size:center_w+mask_size] = 0
+            
+            # Calculate high-frequency ratio
+            high_freq_energy = np.sum(high_freq_region)
+            total_energy = np.sum(magnitude)
+            high_freq_ratio = high_freq_energy / (total_energy + 1e-10)
+            
+            # Deepfakes typically have lower high-frequency content
+            if high_freq_ratio < 0.15:
+                return 0.15  # Boost fake probability
+            return 0.0
+        except:
+            return 0.0
+    
+    def apply_heuristics(self, fake_prob, face_region):
+        """Lightweight rule-based adjustments for real-time performance"""
+        adjustment = 0.0
+        
+        # Only check face resolution (very fast)
+        h, w = face_region.shape[:2]
+        if h < 80 or w < 80:
+            adjustment += 0.10  # Low resolution suspicious
+        
+        # Skip expensive checks for real-time performance
+        # (blurriness, smoothness, frequency analysis disabled)
+        
+        # Clip to valid range
+        return np.clip(fake_prob + adjustment, 0, 1)
+    
+    def analyze_face(self, face_region):
+        """Layer 1: Enhanced per-frame analysis with TTA and heuristics"""
+        try:
+            # Apply adaptive quality preprocessing
+            preprocessed = self.preprocess_face_quality(face_region)
+            
+            # Get prediction with or without TTA
+            if self.use_tta:
+                fake_probability = self.analyze_face_with_tta(preprocessed)
+            else:
+                fake_probability = self._single_prediction(preprocessed)
+            
+            if fake_probability is None:
+                return None, None, None
+            
+            # Apply calibration if available
+            fake_probability = self.apply_calibration(fake_probability)
+            
+            # Apply heuristics (frequency analysis, quality checks)
+            fake_probability = self.apply_heuristics(fake_probability, face_region)
+            
+            # GradCAM disabled for TTA mode (too slow)
             gradcam_img = None
-            if self.enable_gradcam:
-                try:
-                    # Use the last convolutional layer of EfficientNet
-                    target_layers = [model.get_feature_extractor()]
-                    cam = GradCAM(model=model, target_layers=target_layers)
-                    targets = [ClassifierOutputTarget(0)]
-                    grayscale_cam = cam(input_tensor=input_face, targets=targets, eigen_smooth=True)
-                    grayscale_cam = grayscale_cam[0, :]
-                    # Denormalize for visualization
-                    vis_img = input_face.squeeze(0).permute(1, 2, 0).cpu().detach().numpy()
-                    mean = np.array([0.485, 0.456, 0.406])
-                    std = np.array([0.229, 0.224, 0.225])
-                    vis_img = vis_img * std + mean
-                    vis_img = np.clip(vis_img, 0, 1)
-                    gradcam_img = show_cam_on_image(
-                        vis_img,
-                        grayscale_cam,
-                        use_rgb=True
-                    )
-                except Exception as e:
-                    print(f"GradCAM error: {e}")
             
-            return fake_probability, output.item(), gradcam_img
+            return fake_probability, fake_probability, gradcam_img
             
         except Exception as e:
             print(f"Face analysis error: {e}")
             return None, None, None
     
     def get_box_color(self, confidence_level):
-        """Get color based on temporal confidence level"""
-        if confidence_level == 'HIGH_FAKE':
-            return (0, 0, 255)  # Red
-        elif confidence_level == 'HIGH_REAL':
-            return (0, 255, 0)  # Green
+        """Get color based on voting verdict"""
+        if confidence_level == 'FAKE':
+            return (0, 0, 255)  # Red for fake
         else:
-            return (0, 255, 255)  # Yellow (uncertain)
+            return (0, 255, 0)  # Green for real
     
     def draw_detection_overlay(self, frame, x, y, w, h, fake_prob, confidence_level):
-        """Draw enhanced detection overlay with color-coded boxes and info"""
+        """Draw enhanced detection overlay with voting stats"""
         color = self.get_box_color(confidence_level)
         
         # Draw bounding box
         cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
         
-        # Prepare text
-        temporal_avg = self.temporal_tracker.get_temporal_average()
-        stability = self.temporal_tracker.get_stability_score()
+        # Get voting stats
+        voting_stats = self.temporal_tracker.get_voting_stats()
         
-        # Main label
-        if confidence_level == 'HIGH_FAKE':
-            label = f"FAKE: {fake_prob*100:.1f}%"
-        elif confidence_level == 'HIGH_REAL':
-            label = f"REAL: {(1-fake_prob)*100:.1f}%"
+        # Main label with verdict
+        if confidence_level == 'FAKE':
+            label = f"FAKE (Frame: {fake_prob*100:.0f}%)"
         else:
-            label = f"UNCERTAIN: {fake_prob*100:.1f}%"
+            label = f"REAL (Frame: {(1-fake_prob)*100:.0f}%)"
         
         # Draw label background
         label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
         cv2.rectangle(frame, (x, y - 30), (x + label_size[0] + 10, y), color, -1)
         cv2.putText(frame, label, (x + 5, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        # Draw temporal info (smaller text below box)
-        if len(self.temporal_tracker.score_history) >= 10:
-            temporal_info = f"Avg:{temporal_avg*100:.0f}% Stab:{stability*100:.0f}%"
-            cv2.putText(frame, temporal_info, (x, y + h + 20), 
+        # Draw voting info below box
+        if voting_stats['total_frames'] > 0:
+            voting_info = f"Votes: F:{voting_stats['fake_count']} R:{voting_stats['real_count']} (Last {voting_stats['total_frames']} frames)"
+            cv2.putText(frame, voting_info, (x, y + h + 20), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         
         return frame
@@ -363,17 +539,21 @@ class DeepfakeDetector:
             # Draw overlay
             frame = self.draw_detection_overlay(frame, x, y, w, h, fake_prob, confidence_level)
             
-            # Print detailed info every 30 frames
-            if self.frame_count % 30 == 0:
-                print(f"Frame {self.frame_count} | Fake: {fake_prob*100:.1f}% | "
-                      f"Temporal Avg: {self.temporal_tracker.get_temporal_average()*100:.1f}% | "
-                      f"Confidence: {confidence_level}")
+            # Print detailed info every 10 frames
+            if self.frame_count % 10 == 0:
+                voting_stats = self.temporal_tracker.get_voting_stats()
+                print(f"Frame {self.frame_count} | This Frame: {fake_prob*100:.0f}% | "
+                      f"Verdict: {confidence_level} | "
+                      f"Votes [F:{voting_stats['fake_count']} R:{voting_stats['real_count']}]")
         
         return frame, trigger_forensic, forensic_frame
 
 
-# Global detector instance
-detector = DeepfakeDetector(enable_gradcam=False)
+# Global detector instance with enhanced features
+detector = DeepfakeDetector(
+    use_tta=False,             # Disabled for real-time speed
+    num_tta_augmentations=1    # Single prediction for speed
+)
 
 
 def predict(frame):

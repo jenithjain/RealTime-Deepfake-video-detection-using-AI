@@ -173,13 +173,25 @@ async function startDetection(interval = 1000) {
 }
 
 // Stop detection
-function stopDetection() {
+async function stopDetection() {
   if (state.captureInterval) {
     clearInterval(state.captureInterval);
     state.captureInterval = null;
   }
   state.isCapturing = false;
   removeOverlay();
+
+  // Reset backend detector state
+  try {
+    const backendUrl = 'http://localhost:5000';
+    await fetch(`${backendUrl}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    console.log('Backend detector reset');
+  } catch (error) {
+    console.log('Could not reset backend:', error);
+  }
 
   // Send stopped message (ignore if popup is closed)
   try {

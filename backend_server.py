@@ -12,8 +12,17 @@ import io
 import base64
 import torch
 import torch.nn.functional as F
+
+print("=" * 60)
+print("🚀 Starting Backend Server...")
+print("=" * 60)
+print("Loading models (this may take 10-30 seconds)...")
+
 from deepfake_detection import DeepfakeDetector, mtcnn, model, DEVICE
 from face_detection import detect_bounding_box
+
+print("✓ Models loaded successfully!")
+print("=" * 60)
 
 app = Flask(__name__)
 # Enable CORS for browser extension with specific settings
@@ -26,7 +35,10 @@ CORS(app, resources={
 })
 
 # Initialize detector
+print("Initializing detector...")
 detector = DeepfakeDetector(enable_gradcam=False)
+print("✓ Detector initialized!")
+print("=" * 60)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -36,6 +48,21 @@ def health_check():
         'model_loaded': model is not None,
         'device': DEVICE
     }), 200
+
+@app.route('/reset', methods=['POST'])
+def reset_detector():
+    """Reset detector state (frame count and temporal tracker)"""
+    try:
+        detector.reset()
+        return jsonify({
+            'success': True,
+            'message': 'Detector reset successfully'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/analyze', methods=['POST'])
 def analyze_frame():
@@ -119,16 +146,6 @@ def analyze_frame():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/reset', methods=['POST'])
-def reset_detector():
-    """Reset the temporal tracker"""
-    try:
-        detector.temporal_tracker.reset()
-        detector.frame_count = 0
-        return jsonify({'success': True, 'message': 'Detector reset'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/stats', methods=['GET'])
 def get_stats():
     """Get current detection statistics"""
@@ -144,13 +161,16 @@ def get_stats():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("🎭 Deepfake Detection Backend Server")
     print("=" * 60)
-    print(f"Device: {DEVICE}")
-    print(f"Model loaded: {model is not None}")
-    print("Starting server on http://localhost:5000")
+    print(f"✓ Device: {DEVICE}")
+    print(f"✓ Model loaded: {model is not None}")
+    print(f"✓ Detector ready: {detector is not None}")
+    print("\n🌐 Server running on http://localhost:5000")
     print("=" * 60)
+    print("✅ READY! You can now use the extension.")
+    print("=" * 60 + "\n")
     
     # Run Flask server
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
