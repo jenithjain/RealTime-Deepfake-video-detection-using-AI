@@ -150,7 +150,7 @@ class TemporalTracker:
             self.variance_history.append(variance)
         
         # Classify this frame: fake if probability > 0.4, else real
-        frame_class = 'FAKE' if fake_probability > 0.4 else 'REAL'
+        frame_class = 'FAKE' if fake_probability > 0.35 else 'REAL'
         
         # Add to voting window
         self.frame_classifications.append(frame_class)
