@@ -77,17 +77,6 @@ jobs:
           sleep 30
           curl -f http://localhost:5000/health || exit 1
           docker stop test-container
-      
-      - name: Save Docker image
-        run: |
-          docker save ${{ env.SERVICE_NAME }}:${{ github.sha }} > image.tar
-      
-      - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: image.tar
-          retention-days: 1
 
   # Job 3: Deploy to GCP Cloud Run
   deploy:
