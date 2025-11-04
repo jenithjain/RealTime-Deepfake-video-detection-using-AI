@@ -27,13 +27,9 @@ COPY backend_server.py .
 COPY deepfake_detection.py .
 COPY face_detection.py .
 
-# Create weights directory
+# Create weights directory and copy trained model
 RUN mkdir -p weights
-
-# Note: Model weights are optional
-# If weights/best_model.pth exists, uncomment the line below to include it in the image:
-# COPY weights/best_model.pth weights/
-# Otherwise, the backend will use pretrained ImageNet weights
+COPY weights/best_model.pth weights/
 
 # Expose port for Cloud Run
 EXPOSE 5000
