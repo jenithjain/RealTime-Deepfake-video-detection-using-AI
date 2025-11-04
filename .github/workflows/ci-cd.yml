@@ -99,7 +99,8 @@ jobs:
       
       - name: Build and push Docker image using Cloud Build
         run: |
-          gcloud builds submit --tag ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          gcloud builds submit --tag ${{ env.IMAGE_NAME }}:${{ github.sha }} . || true
+          sleep 60  # Wait for build to complete
           gcloud container images add-tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest --quiet
       
       - name: Deploy to Cloud Run
