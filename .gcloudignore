@@ -1,0 +1,86 @@
+# This file tells gcloud what to ignore when uploading to Cloud Build
+# We want to INCLUDE the model weights, so we exclude everything from .gitignore EXCEPT weights/
+
+# Include everything from .gitignore
+.gcloudignore
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter Notebook
+*.ipynb_checkpoints/
+*.ipynb
+
+# Dataset (too large)
+dataset/
+train/
+test/
+val/
+extracted/
+
+# DO NOT IGNORE weights/ - we need the model!
+# weights/ is commented out so it gets included
+# *.pth is commented out so it gets included
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Environment variables
+.env
+.env.local
+
+# OS
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+
+# Training outputs
+train.json
+checkpoints/
+runs/
+wandb/
+
+# Documentation
+TRAIN_WILDDEEPFAKE.ipynb
+
+# Scripts not needed
+create_icons.py
+extract_test_images_from_videos.py
+check_model_metrics.py
+evaluate_improved.py
+video_detection.py
+finetune_advanced.py
+
+# GitHub
+.github/
+README.md
