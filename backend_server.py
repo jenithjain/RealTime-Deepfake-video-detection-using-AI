@@ -12,6 +12,7 @@ import io
 import base64
 import torch
 import torch.nn.functional as F
+import os
 
 print("=" * 60)
 print("🚀 Starting Backend Server...")
@@ -161,16 +162,19 @@ def get_stats():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("\n" + "=" * 60)
+    # Get port from environment variable (Cloud Run uses PORT=8080)
+    port = int(os.environ.get('PORT', 5000))
+    
+    print("=" * 60)
     print("🎭 Deepfake Detection Backend Server")
     print("=" * 60)
     print(f"✓ Device: {DEVICE}")
     print(f"✓ Model loaded: {model is not None}")
     print(f"✓ Detector ready: {detector is not None}")
-    print("\n🌐 Server running on http://localhost:5000")
+    print(f"\n🌐 Server running on http://0.0.0.0:{port}")
     print("=" * 60)
     print("✅ READY! You can now use the extension.")
     print("=" * 60 + "\n")
     
     # Run Flask server
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
