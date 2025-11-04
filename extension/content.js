@@ -86,7 +86,7 @@ async function analyzeFrame(imageDataUrl) {
   try {
     // Get backend URL from storage
     const settings = await chrome.storage.local.get(['backendUrl']);
-    const backendUrl = settings.backendUrl || 'http://localhost:5000';
+    const backendUrl = settings.backendUrl || 'https://deepfake-backend-kpu7yogeia-uc.a.run.app';
 
     console.log('Sending frame to backend:', backendUrl);
 
@@ -183,7 +183,7 @@ async function stopDetection() {
 
   // Reset backend detector state
   try {
-    const backendUrl = 'http://localhost:5000';
+    const backendUrl = 'https://deepfake-backend-kpu7yogeia-uc.a.run.app';
     await fetch(`${backendUrl}/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }

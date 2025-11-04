@@ -27,13 +27,13 @@ async function handleStartDetection(tabId, sendResponse) {
   try {
     // Check if backend is available
     const settings = await chrome.storage.local.get(['backendUrl', 'captureInterval']);
-    const backendUrl = settings.backendUrl || 'http://localhost:5000';
+    const backendUrl = settings.backendUrl || 'https://deepfake-backend-kpu7yogeia-uc.a.run.app';
     const captureInterval = settings.captureInterval || 1000;
 
     // Test backend connection
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds for Cloud Run cold start
       
       const response = await fetch(`${backendUrl}/health`, {
         method: 'GET',

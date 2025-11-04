@@ -41,7 +41,7 @@ captureIntervalInput.addEventListener('change', () => {
 
 // Test backend connection
 testConnectionBtn.addEventListener('click', async () => {
-  const backendUrl = backendUrlInput.value || 'http://localhost:5000';
+  const backendUrl = backendUrlInput.value || 'https://deepfake-backend-kpu7yogeia-uc.a.run.app';
   connectionStatus.style.display = 'block';
   connectionStatus.textContent = '⏳ Testing backend...';
   connectionStatus.style.color = '#ffc107';
