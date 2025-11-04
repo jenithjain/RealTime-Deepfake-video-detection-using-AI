@@ -1,4 +1,7 @@
 // Background service worker for managing tab capture and communication
+// Import config
+importScripts('config.js');
+
 let activeDetectionTabId = null;
 
 // Handle messages from popup and content scripts
@@ -27,7 +30,7 @@ async function handleStartDetection(tabId, sendResponse) {
   try {
     // Check if backend is available
     const settings = await chrome.storage.local.get(['backendUrl', 'captureInterval']);
-    const backendUrl = settings.backendUrl || 'https://deepfake-backend-kpu7yogeia-uc.a.run.app';
+    const backendUrl = settings.backendUrl || CONFIG.BACKEND_URL;
     const captureInterval = settings.captureInterval || 1000;
 
     // Test backend connection

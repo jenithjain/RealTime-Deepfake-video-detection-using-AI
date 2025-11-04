@@ -70,7 +70,7 @@
       <h3>⚙️ Configuration</h3>
       <div class="setting-item">
         <label for="backendUrl">Backend URL</label>
-        <input type="text" id="backendUrl" value="https://deepfake-backend-kpu7yogeia-uc.a.run.app" placeholder="https://deepfake-backend-kpu7yogeia-uc.a.run.app" />
+        <input type="text" id="backendUrl" value="" placeholder="Backend URL from config.js" />
         <button id="testConnection" class="btn btn-small" style="margin-top: 8px; background: #28a745;">Test Backend</button>
         <button id="testContentScript" class="btn btn-small" style="margin-top: 8px; background: #17a2b8;">Test Content Script</button>
         <div id="connectionStatus" style="margin-top: 8px; font-size: 12px; display: none;"></div>
@@ -85,6 +85,7 @@
     </div>
   </div>
 
+  <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

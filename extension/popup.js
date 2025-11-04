@@ -20,13 +20,18 @@ const testConnectionBtn = document.getElementById('testConnection');
 const testContentScriptBtn = document.getElementById('testContentScript');
 const connectionStatus = document.getElementById('connectionStatus');
 
-// Load settings
+// Load settings from storage or use CONFIG defaults
 chrome.storage.local.get(['backendUrl', 'captureInterval'], (result) => {
-  if (result.backendUrl) {
-    backendUrlInput.value = result.backendUrl;
+  // Use stored value, or fall back to CONFIG
+  backendUrlInput.value = result.backendUrl || CONFIG.BACKEND_URL;
+  captureIntervalInput.value = result.captureInterval || CONFIG.CAPTURE_INTERVAL;
+  
+  // Save CONFIG defaults if not already saved
+  if (!result.backendUrl) {
+    chrome.storage.local.set({ backendUrl: CONFIG.BACKEND_URL });
   }
-  if (result.captureInterval) {
-    captureIntervalInput.value = result.captureInterval;
+  if (!result.captureInterval) {
+    chrome.storage.local.set({ captureInterval: CONFIG.CAPTURE_INTERVAL });
   }
 });
 
@@ -41,7 +46,7 @@ captureIntervalInput.addEventListener('change', () => {
 
 // Test backend connection
 testConnectionBtn.addEventListener('click', async () => {
-  const backendUrl = backendUrlInput.value || 'https://deepfake-backend-kpu7yogeia-uc.a.run.app';
+  const backendUrl = backendUrlInput.value || CONFIG.BACKEND_URL;
   connectionStatus.style.display = 'block';
   connectionStatus.textContent = '⏳ Testing backend...';
   connectionStatus.style.color = '#ffc107';
